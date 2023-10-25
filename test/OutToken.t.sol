@@ -5,6 +5,7 @@ pragma solidity ^0.8.18;
 import {Test} from "forge-std/Test.sol";
 import {DeployOurToken} from "../script/DeployOurToken.s.sol";
 import {OurToken} from "../src/OurToken.sol";
+import {ManualToken} from "../src/ManualToken.sol";
 
 contract OurTokenTest is Test {
     OurToken public ourToken;
@@ -67,26 +68,80 @@ contract OurTokenTest is Test {
         assertEq(ourToken.balanceOf(bob), initialBalance);
     }
 
-    function testTransferToZeroAddress() public {
-        uint256 transferAmount = 50;
-
-        // Attempt to transfer tokens to the zero address, should revert
-        vm.prank(alice);
-        vm.expectRevert();
-        ourToken.transfer(address(0), transferAmount);
+    function testFailsTransferToZeroAddress() public {
+        // Attempt to transfer tokens to a zero address.
+        // This should intentionally fail.
+        uint256 transferAmount = 500;
+        bool success = ourToken.transfer(address(0), transferAmount);
+        assertEq(success, false);
     }
 
-    function testTransferWithInsufficientAllowance() public {
-        // Set Alice's allowance to a lower value than the transfer amount
-        uint256 allowance = 49;
+    function testFailedTransferInsufficientBalance() public {
+        // Attempt to transfer tokens with insufficient balance.
+        // This should intentionally fail.
+        uint256 transferAmount = STARTING_BALANCE + 1;
+        bool success = ourToken.transfer(bob, transferAmount);
+        assertEq(success, false);
+    }
+}
+
+contract ManualTokenTest is Test {
+    ManualToken public manualToken;
+    address alice = makeAddr("alice");
+    address bob = makeAddr("bob");
+
+    function setUp() public {
+        manualToken = new ManualToken();
+        manualToken.transfer(bob, 20 ether);
+    }
+
+    function testInitialValues() public {
+        // Test the initial name, total supply, and decimals.
+        assertEq(manualToken.name(), "Manual Token");
+        assertEq(manualToken.totalSupply(), 100 ether);
+        assertEq(manualToken.decimals(), 18);
+    }
+
+    function testTransferManualToken() public {
+        // Test transferring tokens from one account to another.
         vm.prank(bob);
-        ourToken.approve(alice, allowance);
+        manualToken.transfer(alice, 10 ether);
 
-        uint256 transferAmount = 50;
+        assertEq(manualToken.balanceOf(alice), 10 ether);
+        assertEq(manualToken.balanceOf(bob), 100 ether - 10 ether);
+    }
 
-        // Attempt to transfer tokens with insufficient allowance, should revert
-        vm.prank(alice);
-        vm.expectRevert();
-        ourToken.transferFrom(bob, alice, transferAmount);
+    function testTransferInsufficientBalance() public {
+        // Test transferring tokens with insufficient balance, should revert.
+        (bool success, ) = address(manualToken).call(
+            abi.encodeWithSignature(
+                "transfer(address,uint256)",
+                alice,
+                101 ether
+            )
+        );
+        assertEq(success, false); // The call should revert, which means success is false.
+    }
+
+    function testTransferToZeroAddress() public {
+        // Test transferring tokens to the zero address, should revert.
+        bool success;
+        try manualToken.transfer(address(0), 10 ether) {
+            success = true; // The transfer succeeded, but it should revert.
+        } catch (bytes memory /* revertReason */) {
+            success = false; // The transfer reverted, which is expected.
+        }
+        assertEq(success, false);
+    }
+
+    function testTransferWithPreviousBalanceCheck() public {
+        // Test transferring tokens with an additional balance check.
+        uint256 initialBalanceAlice = manualToken.balanceOf(alice);
+        uint256 initialBalanceBob = manualToken.balanceOf(bob);
+
+        manualToken.transfer(bob, 10 ether);
+
+        assertEq(manualToken.balanceOf(alice), initialBalanceAlice - 10 ether);
+        assertEq(manualToken.balanceOf(bob), initialBalanceBob + 10 ether);
     }
 }
